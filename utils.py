@@ -36,6 +36,15 @@ embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
 
 def ingest_docs(uploaded_files: List[UploadedFile], assistant_id: str, index_name, delete_existing_files=False):
     try:
+        if not os.path.exists("docs"):
+            os.makedirs("docs")
+            logger.info("Carpeta 'docs' creada")
+
+        # Verificar que existe la carpeta específica del índice
+        index_dir = os.path.join("docs", index_name)
+        if not os.path.exists(index_dir):
+            os.makedirs(index_dir)
+            logger.info(f"Carpeta '{index_dir}' creada")
         # Inicializar cliente de Pinecone
         pc = Pinecone(api_key=os.environ.get("PINECONE_API_KEY"))
 
