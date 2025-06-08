@@ -1,0 +1,23 @@
+# Dependencias principales
+streamlit>=1.27.0
+python-dotenv>=1.0.0
+pinecone-client>=2.2.2
+pandas>=2.0.0
+
+# LangChain y componentes relacionados
+langchain>=0.0.267
+langchain-openai>=0.0.2
+langchain-pinecone>=0.0.1
+langchain-community>=0.0.8
+langchain-core>=0.1.0
+
+# Procesamiento de documentos
+pymupdf>=1.22.5
+unstructured>=0.10.0
+python-magic>=0.4.27
+
+# Base de datos (opcional)
+pymongo>=4.5.0
+
+# OpenAI
+openai>=1.0.0
