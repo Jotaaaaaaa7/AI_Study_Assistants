@@ -28,7 +28,7 @@ def main():
 
     # Configurar la barra lateral
     with st.sidebar:
-        st.title("Study Assistants")
+        # st.title("Study Assistants")
 
         # Botón para ir a la página de creación de asistentes
         if st.button("🤖 Crear Nuevo asistente", use_container_width=True):
@@ -42,7 +42,7 @@ def main():
         # Lista de asistentes existentes
         indices = utils.get_all_indexes(detailed=True)
         for idx in indices:
-            if st.button(f"📚 {idx['name']}", key=f"idx_{idx['name']}", use_container_width=True):
+            if st.button(f"🧠 {idx['name']}", key=f"idx_{idx['name']}", use_container_width=True):
                 st.session_state.page = "index_page"
                 st.session_state.selected_index = idx['name']
                 st.session_state.active_tab = "chatbot"
@@ -149,171 +149,146 @@ def show_chatbot_tab(index_name, chat_state):
         st.session_state.is_processing = False
     if "current_prompt" not in st.session_state:
         st.session_state.current_prompt = None
+    if "message_sources" not in st.session_state:
+        st.session_state.message_sources = {}
 
-    # Estructura principal de dos columnas
-    chat_col, fragments_col = st.columns([4, 1])
+    # Botón para reiniciar conversación
+    if st.button("🔄 Reiniciar conversación", key="reset_chat"):
+        chat_state["user_prompt_history"] = []
+        chat_state["chat_answers_history"] = []
+        chat_state["chat_history"] = []
+        chat_state["used_fragments"] = {}
+        st.session_state.message_sources = {}
+        st.session_state.is_processing = False
+        st.session_state.current_prompt = None
+        st.rerun()
 
-    # Columna izquierda - Chat
-    with chat_col:
-        # Botón para reiniciar conversación
-        if st.button("🔄 Reiniciar conversación", key="reset_chat"):
-            chat_state["user_prompt_history"] = []
-            chat_state["chat_answers_history"] = []
-            chat_state["chat_history"] = []
-            chat_state["used_fragments"] = {}
-            st.session_state.is_processing = False
-            st.session_state.current_prompt = None
-            st.rerun()
+    # Área de mensajes con scroll
+    chat_messages = st.container(height=600)
+    with chat_messages:
+        # Mostrar historial de mensajes
+        for i, (user_query, ai_response) in enumerate(zip(
+                chat_state["user_prompt_history"],
+                chat_state["chat_answers_history"]
+        )):
+            # Mensaje del usuario
+            st.chat_message("user").write(user_query)
 
-        # Área de mensajes con scroll
-        chat_messages = st.container(height=550)
-        with chat_messages:
-            # Mostrar historial de mensajes
-            for user_query, ai_response in zip(
-                    chat_state["user_prompt_history"],
-                    chat_state["chat_answers_history"]
-            ):
-                # Mensaje del usuario
-                st.chat_message("user").write(user_query)
+            # Extraer respuesta sin fuentes
+            clean_response = ai_response
+            if "*fuentes utilizados:*" in ai_response:
+                clean_response = ai_response.split("*fuentes utilizados:*")[0]
 
-                # Extraer respuesta sin fuentes
-                clean_response = ai_response
-                if "*fuentes utilizados:*" in ai_response:
-                    clean_response = ai_response.split("*fuentes utilizados:*")[0]
+            # Mensaje del asistente
+            with st.chat_message("assistant"):
+                st.markdown(clean_response)
 
-                # Mensaje del asistente
-                with st.chat_message("assistant"):
-                    st.markdown(clean_response)
+                # Mostrar fuentes para este mensaje específico
+                message_id = f"msg_{i}"
+                if message_id in st.session_state.message_sources and st.session_state.message_sources[message_id]:
+                    st.markdown("**Fuentes utilizadas:**")
 
-            # Mostrar mensaje en procesamiento (si aplica)
-            if st.session_state.is_processing and st.session_state.current_prompt:
-                st.chat_message("user").write(st.session_state.current_prompt)
-                with st.chat_message("assistant"):
-                    with st.spinner("Pensando..."):
-                        # Generar respuesta
-                        generated_response = utils.run_llm_on_index(
-                            query=st.session_state.current_prompt,
-                            chat_history=chat_state["chat_history"],
-                            index_name=index_name
-                        )
+                    # Crear 4 columnas para las fuentes
+                    cols = st.columns(4)
 
-                        # Guardar fuentes
-                        if "source_documents" in generated_response and generated_response["source_documents"]:
-                            for doc in generated_response["source_documents"]:
-                                if hasattr(doc, "metadata") and "filename" in doc.metadata:
-                                    fragment_key = f"{doc.metadata.get('filename')}_{doc.page_content[:30]}"
-                                    if "used_fragments" not in chat_state:
-                                        chat_state["used_fragments"] = {}
-                                    if fragment_key not in chat_state["used_fragments"]:
-                                        chat_state["used_fragments"][fragment_key] = {
-                                            "content": doc.page_content,
-                                            "metadata": doc.metadata
-                                        }
+                    # Obtener fuentes de este mensaje
+                    message_fragments = st.session_state.message_sources[message_id]
+                    fragments_by_file = {}
 
-                        # Actualizar historial
-                        chat_state["user_prompt_history"].append(st.session_state.current_prompt)
-                        chat_state["chat_answers_history"].append(generated_response['result'])
-                        chat_state["chat_history"].append(("human", st.session_state.current_prompt))
-                        chat_state["chat_history"].append(("ai", generated_response["result"]))
+                    # Agrupar fuentes por archivo
+                    for key, fragment in message_fragments.items():
+                        filename = fragment["metadata"].get("filename", "Desconocido") if "metadata" in fragment else "Desconocido"
+                        if filename not in fragments_by_file:
+                            fragments_by_file[filename] = []
+                        fragments_by_file[filename].append(fragment)
 
-                        # Finalizar procesamiento
-                        st.session_state.is_processing = False
-                        st.session_state.current_prompt = None
-                        st.rerun()
+                    # Distribuir las fuentes entre las columnas
+                    files_list = list(fragments_by_file.items())
+                    for j, (filename, fragments) in enumerate(files_list):
+                        col_index = j % 4  # Distribuir en las 4 columnas
+                        with cols[col_index]:
+                            if st.button(f"📄 {filename} ({len(fragments)})", key=f"file_{message_id}_{filename}"):
+                                st.session_state.show_fragment_dialog = True
+                                st.session_state.current_file = filename
+                                st.session_state.current_fragments = fragments
+                                st.rerun()
 
-        # Input para nuevos mensajes
-        prompt = st.chat_input("Haz una pregunta sobre los documentos...")
-        if prompt and not st.session_state.is_processing:
-            # Iniciar procesamiento
-            st.session_state.is_processing = True
-            st.session_state.current_prompt = prompt
-            st.rerun()
+        # Mostrar mensaje en procesamiento (si aplica)
+        if st.session_state.is_processing and st.session_state.current_prompt:
+            st.chat_message("user").write(st.session_state.current_prompt)
+            with st.chat_message("assistant"):
+                with st.spinner("Pensando..."):
+                    # Generar respuesta
+                    generated_response = utils.run_llm_on_index(
+                        query=st.session_state.current_prompt,
+                        chat_history=chat_state["chat_history"],
+                        index_name=index_name
+                    )
 
+                    # Crear un ID para este mensaje
+                    message_id = f"msg_{len(chat_state['user_prompt_history'])}"
+                    st.session_state.message_sources[message_id] = {}
 
+                    # Guardar fuentes específicas para este mensaje
+                    if "source_documents" in generated_response and generated_response["source_documents"]:
+                        for doc in generated_response["source_documents"]:
+                            if hasattr(doc, "metadata") and "filename" in doc.metadata:
+                                fragment_key = f"{doc.metadata.get('filename')}_{doc.page_content[:30]}"
+                                # Guardar en el historial general
+                                if "used_fragments" not in chat_state:
+                                    chat_state["used_fragments"] = {}
+                                if fragment_key not in chat_state["used_fragments"]:
+                                    chat_state["used_fragments"][fragment_key] = {
+                                        "content": doc.page_content,
+                                        "metadata": doc.metadata
+                                    }
+                                # Guardar para este mensaje específico
+                                st.session_state.message_sources[message_id][fragment_key] = {
+                                    "content": doc.page_content,
+                                    "metadata": doc.metadata
+                                }
 
-    # Columna derecha - fuentes
-    with fragments_col:
-        st.subheader("fuentes utilizados")
+                    # Actualizar historial
+                    chat_state["user_prompt_history"].append(st.session_state.current_prompt)
+                    chat_state["chat_answers_history"].append(generated_response['result'])
+                    chat_state["chat_history"].append(("human", st.session_state.current_prompt))
+                    chat_state["chat_history"].append(("ai", generated_response["result"]))
 
-        if "used_fragments" not in chat_state:
-            chat_state["used_fragments"] = {}
-
-        if not chat_state["used_fragments"]:
-            st.info("Aún no se han utilizado fuentes")
-        else:
-            # Agrupar fuentes por archivo
-            fragments_by_file = {}
-            for key, fragment in chat_state["used_fragments"].items():
-                filename = fragment["metadata"].get("filename", "Desconocido") if "metadata" in fragment else "Desconocido"
-                if filename not in fragments_by_file:
-                    fragments_by_file[filename] = []
-                fragments_by_file[filename].append(fragment)
-
-            # Inicializar variables de estado para los diálogos
-            if "show_fragment_dialog" not in st.session_state:
-                st.session_state.show_fragment_dialog = False
-            if "current_file" not in st.session_state:
-                st.session_state.current_file = None
-
-            # Mostrar botones para cada archivo
-            for filename, fragments in fragments_by_file.items():
-                if st.button(f"📄 {filename} ({len(fragments)})", key=f"file_{filename}"):
-                    st.session_state.show_fragment_dialog = True
-                    st.session_state.current_file = filename
+                    # Finalizar procesamiento
+                    st.session_state.is_processing = False
+                    st.session_state.current_prompt = None
                     st.rerun()
 
-            # Dialog de fuentes
-            if st.session_state.show_fragment_dialog and st.session_state.current_file:
-                current_fragments = fragments_by_file[st.session_state.current_file]
-
-                @st.dialog(f"fuentes de {st.session_state.current_file}", width='large')
-                def show_fragments_dialog():
-                    st.subheader(f"fuentes de {st.session_state.current_file}")
-
-                    for idx, fragment in enumerate(current_fragments):
-                        expander_title = ""
-                        if "metadata" in fragment and "page" in fragment["metadata"]:
-                            expander_title = f"Page {int(fragment['metadata']['page'])} --- "
-                        expander_title += fragment['content'][:90] + "..."
-
-                        with st.expander(expander_title, expanded=(idx == 0)):
-                            st.markdown("**Contenido:**")
-                            st.markdown(f"```\n{fragment['content']}\n```")
-
-                show_fragments_dialog()
-                st.session_state.show_fragment_dialog = False
-
-    # Procesar nueva entrada (al final)
-    if prompt:
-        # Generar respuesta
-        with st.spinner("Pensando..."):
-            generated_response = utils.run_llm_on_index(
-                query=prompt,
-                chat_history=chat_state["chat_history"],
-                index_name=index_name
-            )
-
-        # Guardar fuentes
-        if "source_documents" in generated_response and generated_response["source_documents"]:
-            for doc in generated_response["source_documents"]:
-                if hasattr(doc, "metadata") and "filename" in doc.metadata:
-                    fragment_key = f"{doc.metadata.get('filename')}_{doc.page_content[:30]}"
-                    if "used_fragments" not in chat_state:
-                        chat_state["used_fragments"] = {}
-                    if fragment_key not in chat_state["used_fragments"]:
-                        chat_state["used_fragments"][fragment_key] = {
-                            "content": doc.page_content,
-                            "metadata": doc.metadata
-                        }
-
-        # Actualizar historial
-        chat_state["user_prompt_history"].append(prompt)
-        chat_state["chat_answers_history"].append(generated_response['result'])
-        chat_state["chat_history"].append(("human", prompt))
-        chat_state["chat_history"].append(("ai", generated_response["result"]))
-
-        # Recargar la página para mostrar los nuevos mensajes
+    # Input para nuevos mensajes
+    prompt = st.chat_input("Haz una pregunta sobre los documentos...")
+    if prompt and not st.session_state.is_processing:
+        # Iniciar procesamiento
+        st.session_state.is_processing = True
+        st.session_state.current_prompt = prompt
         st.rerun()
+
+    # Dialog de fuentes
+    if "show_fragment_dialog" in st.session_state and st.session_state.show_fragment_dialog:
+        if hasattr(st.session_state, "current_fragments") and st.session_state.current_file:
+            @st.dialog(f"Fuentes de {st.session_state.current_file}", width='large')
+            def show_fragments_dialog():
+                st.subheader(f"Fuentes de {st.session_state.current_file}")
+
+                for idx, fragment in enumerate(st.session_state.current_fragments):
+                    expander_title = ""
+                    if "metadata" in fragment and "page" in fragment["metadata"]:
+                        expander_title = f"Page {int(fragment['metadata']['page'])} --- "
+                    expander_title += fragment['content'][:90] + "..."
+
+                    with st.expander(expander_title, expanded=(idx == 0)):
+                        st.markdown("**Contenido:**")
+                        st.markdown(f"```\n{fragment['content']}\n```")
+
+            show_fragments_dialog()
+            st.session_state.show_fragment_dialog = False
+
+
+
 
 def show_info_tab(index_name):
     """Muestra la pestaña de información del asistente"""
